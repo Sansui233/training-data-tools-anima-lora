@@ -1,0 +1,30 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# input raw
+*.zip
+*.png
+*.jpg
+*.jpeg
+*.webp
+raws/
+
+# output dataset
+train/anima/data/
+train/anima/reports/
+
+# models
+*/models/
+
+# code
+anima-train/data/
+anima-train/reports/
+
