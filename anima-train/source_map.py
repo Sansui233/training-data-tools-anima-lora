@@ -71,6 +71,23 @@ def mapped_artifacts(
     return image_path, caption_path, image_path.is_file(), caption_path.is_file()
 
 
+def update_output_path(
+    source_map: SourceMap,
+    old_path: Path,
+    new_path: Path,
+) -> bool:
+    old_path = old_path.resolve()
+    changed = False
+    for mapping in source_map.images.values():
+        if Path(mapping["output_path"]).resolve() == old_path:
+            mapping["output_path"] = str(new_path.resolve())
+            mapping["updated_at"] = datetime.now(UTC).isoformat()
+            changed = True
+    if changed:
+        source_map.save()
+    return changed
+
+
 def upsert_mapping(
     source_map: SourceMap,
     *,

@@ -8,6 +8,7 @@ from pathlib import Path
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from dataset_sources import collect_source_files
+from image_naming import original_stem
 from source_map import (
     connect,
     file_sha256,
@@ -124,10 +125,14 @@ def main() -> int:
                 digest = file_sha256(src)
                 existing = get_mapping(source_map, key)
                 if existing is not None:
-                    _, caption_path, image_exists, caption_exists = mapped_artifacts(
-                        existing
-                    )
+                    (
+                        mapped_image_path,
+                        caption_path,
+                        image_exists,
+                        caption_exists,
+                    ) = mapped_artifacts(existing)
                 else:
+                    mapped_image_path = dst
                     caption_path = dst.with_suffix(".txt")
                     image_exists = False
                     caption_exists = False
@@ -135,7 +140,9 @@ def main() -> int:
                     not args.force
                     and existing is not None
                     and existing["source_hash"] == digest
-                    and Path(existing["output_path"]).resolve() == dst
+                    and mapped_image_path.parent == out_dir
+                    and mapped_image_path.suffix.lower() == dst.suffix.lower()
+                    and original_stem(mapped_image_path) == original_stem(dst)
                     and existing["output_format"] == args.format
                     and existing["output_quality"] == (
                         args.webp_quality if args.format == "webp" else None

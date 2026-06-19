@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Iterable
 
 
+TRAINING_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+
+
 def collect_source_files(
     source_root: Path,
     source_dirs: Iterable[Path],
@@ -25,3 +28,16 @@ def collect_source_files(
             raise FileNotFoundError(f"source subdirectory does not exist: {selected_dir}")
         inputs.update(path for path in selected_dir.iterdir() if path.is_file())
     return sorted(inputs, key=lambda path: path.as_posix().casefold())
+
+
+def collect_training_images(data_dir: Path) -> list[Path]:
+    if not data_dir.is_dir():
+        raise FileNotFoundError(f"training data directory does not exist: {data_dir}")
+    return sorted(
+        (
+            path
+            for path in data_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in TRAINING_IMAGE_EXTENSIONS
+        ),
+        key=lambda path: path.as_posix().casefold(),
+    )

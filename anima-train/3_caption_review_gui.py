@@ -7,12 +7,14 @@ from tkinter import messagebox, ttk
 
 from PIL import Image, ImageTk
 
+from dataset_sources import collect_training_images
+
 
 class CaptionReviewApp:
     def __init__(self, root: tk.Tk, data_dir: Path) -> None:
         self.root = root
         self.data_dir = data_dir
-        self.images = sorted(data_dir.glob("*.png"))
+        self.images = collect_training_images(data_dir)
         self.index = 0
         self.current_image: Image.Image | None = None
         self.photo: ImageTk.PhotoImage | None = None
@@ -26,7 +28,7 @@ class CaptionReviewApp:
         self._bind_keys()
 
         if not self.images:
-            messagebox.showerror("No images", f"No PNG files found in {data_dir}")
+            messagebox.showerror("No images", f"No training images found in {data_dir}")
             self.root.destroy()
             return
 
@@ -165,7 +167,7 @@ class CaptionReviewApp:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Review PNG images and edit captions.")
+    parser = argparse.ArgumentParser(description="Review training images and edit captions.")
     parser.add_argument("--data-dir", type=Path, default=Path("train/anima/data"))
     return parser.parse_args()
 

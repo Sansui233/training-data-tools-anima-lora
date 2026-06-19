@@ -10,8 +10,8 @@ import torch.amp.autocast_mode
 import torchvision.transforms.functional as TVF
 from PIL import Image
 
-from dataset_sources import collect_source_files
-from source_map import connect, get_mapping, mapped_artifacts, source_key
+from dataset_sources import collect_training_images
+from source_map import connect, mapped_artifacts
 
 
 def import_joytag(repo_dir: Path):
@@ -69,15 +69,7 @@ def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Generate JoyTag captions for mapped images.")
-    parser.add_argument(
-        "--source",
-        type=Path,
-        action="append",
-        dest="source_dirs",
-        required=True,
-        help="Depth-1 or depth-2 directory under raws; repeat to select multiple",
-    )
+    parser = argparse.ArgumentParser(description="Generate JoyTag captions for training images.")
     parser.add_argument("--target-dir", type=Path, default=Path("train/anima"))
     parser.add_argument("--data-dir", type=Path, default=None)
     parser.add_argument("--joytag-repo", type=Path, default=Path("joytag"))
@@ -92,7 +84,6 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    source_root = Path("raws").resolve()
     target_dir = args.target_dir.resolve()
     data_dir = (args.data_dir or target_dir / "data").resolve()
     joytag_repo = args.joytag_repo.resolve()
@@ -101,36 +92,27 @@ def main() -> int:
     source_map_path = data_dir / "sourmap.json"
     report_dir.mkdir(parents=True, exist_ok=True)
 
+    if not source_map_path.is_file():
+        raise SystemExit(f"source map does not exist: {source_map_path}")
+
     device = torch.device(args.device)
 
     images: list[tuple[Path, Path]] = []
     skipped: list[dict[str, object]] = []
-    source_dirs = args.source_dirs
     try:
-        source_inputs = collect_source_files(source_root, source_dirs)
-    except (FileNotFoundError, ValueError) as exc:
+        training_images = collect_training_images(data_dir)
+    except FileNotFoundError as exc:
         raise SystemExit(str(exc)) from exc
 
     with connect(source_map_path) as source_map:
-        for src in source_inputs:
-            key = source_key(source_root, src)
-            mapping = get_mapping(source_map, key)
-            if mapping is None:
-                skipped.append(
-                    {
-                        "source": str(src),
-                        "reason": "no source map entry; run conversion first",
-                    }
-                )
-                continue
-
+        for mapping in source_map.images.values():
             image_path, caption_path, image_exists, caption_exists = mapped_artifacts(
                 mapping
             )
             if not image_exists:
                 skipped.append(
                     {
-                        "source": str(src),
+                        "source": mapping["source_path"],
                         "image": str(image_path),
                         "caption": str(caption_path),
                         "image_exists": image_exists,
@@ -138,22 +120,21 @@ def main() -> int:
                         "reason": "mapped target image is missing; run conversion first",
                     }
                 )
-                continue
 
-            if caption_exists and not args.force:
-                skipped.append(
-                    {
-                        "source": str(src),
-                        "image": str(image_path),
-                        "caption": str(caption_path),
-                        "image_exists": image_exists,
-                        "caption_exists": caption_exists,
-                        "reason": "caption exists",
-                    }
-                )
-                continue
-
-            images.append((image_path, caption_path))
+    for image_path in training_images:
+        caption_path = image_path.with_suffix(".txt")
+        if caption_path.is_file() and not args.force:
+            skipped.append(
+                {
+                    "image": str(image_path),
+                    "caption": str(caption_path),
+                    "image_exists": True,
+                    "caption_exists": True,
+                    "reason": "caption exists",
+                }
+            )
+            continue
+        images.append((image_path, caption_path))
 
     successes: list[dict[str, object]] = []
     failures: list[dict[str, object]] = []
@@ -201,13 +182,12 @@ def main() -> int:
     write_jsonl(report_dir / "joytag_skipped.jsonl", skipped)
     write_jsonl(report_dir / "joytag_failures.jsonl", failures)
     summary = {
-        "source_count": len(source_inputs),
+        "training_image_count": len(training_images),
+        "mapped_image_count": len(source_map.images),
         "image_count": len(images),
         "caption_count": len(successes),
         "skipped_count": len(skipped),
         "failed_count": len(failures),
-        "source_root": str(source_root),
-        "source_dirs": [str(path.resolve()) for path in source_dirs],
         "target_dir": str(target_dir),
         "data_dir": str(data_dir),
         "source_map": str(source_map_path),
