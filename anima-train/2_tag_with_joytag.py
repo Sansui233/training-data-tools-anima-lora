@@ -11,7 +11,7 @@ import torchvision.transforms.functional as TVF
 from PIL import Image
 
 from dataset_sources import collect_training_images
-from source_map import connect, mapped_artifacts
+from source_map import connect, mapped_artifacts, remove_missing_sources
 
 
 def import_joytag(repo_dir: Path):
@@ -105,6 +105,7 @@ def main() -> int:
         raise SystemExit(str(exc)) from exc
 
     with connect(source_map_path) as source_map:
+        removed_mappings = remove_missing_sources(source_map)
         for mapping in source_map.images.values():
             image_path, caption_path, image_exists, caption_exists = mapped_artifacts(
                 mapping
@@ -184,6 +185,7 @@ def main() -> int:
     summary = {
         "training_image_count": len(training_images),
         "mapped_image_count": len(source_map.images),
+        "removed_mapping_count": len(removed_mappings),
         "image_count": len(images),
         "caption_count": len(successes),
         "skipped_count": len(skipped),

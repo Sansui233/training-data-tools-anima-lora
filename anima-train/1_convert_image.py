@@ -14,6 +14,7 @@ from source_map import (
     file_sha256,
     get_mapping,
     mapped_artifacts,
+    remove_missing_sources,
     source_key,
     upsert_mapping,
 )
@@ -111,6 +112,7 @@ def main() -> int:
     converted: list[dict[str, object]] = []
     skipped: list[dict[str, object]] = []
     failed: list[dict[str, object]] = []
+    removed_mappings: list[dict[str, object]] = []
     source_dirs = args.source_dirs
     try:
         inputs = collect_source_files(source_root, source_dirs)
@@ -118,6 +120,9 @@ def main() -> int:
         raise SystemExit(str(exc)) from exc
 
     with connect(source_map_path) as source_map:
+        removed_mappings = remove_missing_sources(source_map)
+        for mapping in removed_mappings:
+            print(f"removed missing source mapping: {mapping['source_path']}")
         for src in inputs:
             key = source_key(source_root, src)
             dst = out_dir / f"{safe_stem(src)}.{args.format}"
@@ -199,12 +204,14 @@ def main() -> int:
     write_jsonl(report_dir / "converted_images.jsonl", converted)
     write_jsonl(report_dir / "skipped_conversions.jsonl", skipped)
     write_jsonl(report_dir / "failed_conversions.jsonl", failed)
+    write_jsonl(report_dir / "removed_source_mappings.jsonl", removed_mappings)
 
     summary = {
         "input_count": len(inputs),
         "converted_count": len(converted),
         "skipped_count": len(skipped),
         "failed_count": len(failed),
+        "removed_mapping_count": len(removed_mappings),
         "source_root": str(source_root),
         "source_dirs": [str(path.resolve()) for path in source_dirs],
         "target_dir": str(target_dir),

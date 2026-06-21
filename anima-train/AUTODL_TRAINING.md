@@ -5,15 +5,14 @@
 Upload `atomsphere_anima_train_package.zip` to the AutoDL machine, then unpack it:
 
 ```bash
-mkdir -p /root/autodl-tmp/anima-train
-cd /root/autodl-tmp/anima-train
+cd /root/autodl-tmp
 unzip /path/to/atomsphere_anima_train_package.zip
 ```
 
 After unpacking, the dataset should look like:
 
 ```text
-/root/autodl-tmp/anima-train/data/*.png
+/root/autodl-tmp/anima-train/data/*.{webp,png,jpg,jpeg,bmp}
 /root/autodl-tmp/anima-train/data/*.txt
 /root/autodl-tmp/anima-train/dataset_config.toml
 /root/autodl-tmp/anima-train/train_anima_lora_4090.sh
@@ -30,10 +29,10 @@ git clone https://github.com/kohya-ss/sd-scripts.git
 cd sd-scripts
 python -m venv venv
 source venv/bin/activate
-pip install -U pip setuptools wheel
+python -m pip install -U pip setuptools wheel
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
-pip install -r requirements.txt
-pip install bitsandbytes accelerate
+pip install -U -r requirements.txt
+pip install bitsandbytes
 ```
 
 Then configure accelerate:

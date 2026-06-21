@@ -88,6 +88,17 @@ def update_output_path(
     return changed
 
 
+def remove_missing_sources(source_map: SourceMap) -> list[dict[str, Any]]:
+    removed: list[dict[str, Any]] = []
+    for key, mapping in list(source_map.images.items()):
+        if not Path(mapping["source_path"]).is_file():
+            removed.append(mapping)
+            del source_map.images[key]
+    if removed:
+        source_map.save()
+    return removed
+
+
 def upsert_mapping(
     source_map: SourceMap,
     *,

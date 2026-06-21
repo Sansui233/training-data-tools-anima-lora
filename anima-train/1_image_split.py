@@ -21,9 +21,28 @@ from image_naming import (
     slice_number,
 )
 from source_map import connect, update_output_path
+from windows_ui import configure_tk_for_windows, enable_windows_dpi_awareness
 
 
 LOGGER = logging.getLogger("image_split")
+
+APP_BG = "#252525"
+PANEL_BG = "#2d2d2d"
+IMAGE_BG = "#171717"
+INPUT_BG = "#383838"
+TEXT_MUTED = "#b9b9b9"
+TEXT_MAIN = "#f0f0f0"
+CONTROL_BG = "#3a3a3a"
+CONTROL_ACTIVE_BG = "#464646"
+CONTROL_FG = "#f3f3f3"
+DANGER_BG = "#8f2f2f"
+DANGER_ACTIVE_BG = "#a83a3a"
+DANGER_FG = "#ffffff"
+ACCENT = "#6ea8fe"
+FONT_UI = ("Segoe UI", 12)
+FONT_UI_SMALL = ("Segoe UI", 11)
+FONT_HEADER = ("Segoe UI", 12)
+FONT_OVERLAY = ("Segoe UI", 10, "bold")
 
 
 def configure_logging(data_dir: Path, level: str) -> Path:
@@ -52,45 +71,137 @@ def configure_logging(data_dir: Path, level: str) -> Path:
     return log_path
 
 
-def enable_windows_dpi_awareness() -> str:
-    if sys.platform != "win32":
-        return "not-windows"
+def configure_dark_theme(root: tk.Tk) -> None:
+    root.configure(background=APP_BG)
+    root.option_add("*Font", FONT_UI)
 
-    try:
-        user32 = ctypes.WinDLL("user32", use_last_error=True)
-        set_context = user32.SetProcessDpiAwarenessContext
-        set_context.argtypes = [ctypes.c_void_p]
-        set_context.restype = ctypes.c_bool
-        if set_context(ctypes.c_void_p(-4)):
-            return "per-monitor-v2"
-        error = ctypes.get_last_error()
-        if error == 5:
-            return "already-configured"
-    except (AttributeError, OSError):
-        pass
-
-    try:
-        shcore = ctypes.WinDLL("shcore")
-        if shcore.SetProcessDpiAwareness(2) == 0:
-            return "per-monitor"
-    except (AttributeError, OSError):
-        pass
-
-    try:
-        if ctypes.windll.user32.SetProcessDPIAware():
-            return "system-aware"
-    except (AttributeError, OSError):
-        pass
-    return "unavailable"
-
-
-def configure_tk_for_windows(root: tk.Tk) -> float:
-    dpi = float(root.winfo_fpixels("1i"))
-    root.tk.call("tk", "scaling", dpi / 72.0)
     style = ttk.Style(root)
-    if sys.platform == "win32" and "vista" in style.theme_names():
-        style.theme_use("vista")
-    return dpi
+    if "clam" in style.theme_names():
+        style.theme_use("clam")
+    style.configure("App.TFrame", background=APP_BG)
+    style.configure("Panel.TFrame", background=PANEL_BG)
+    style.configure("Card.TFrame", background=INPUT_BG)
+    style.configure(
+        "Card.TLabel",
+        background=INPUT_BG,
+        foreground=TEXT_MAIN,
+        font=FONT_UI_SMALL,
+    )
+    style.configure(
+        "App.TLabel",
+        background=APP_BG,
+        foreground=TEXT_MAIN,
+        font=FONT_UI,
+    )
+    style.configure(
+        "Panel.TLabel",
+        background=PANEL_BG,
+        foreground=TEXT_MAIN,
+        font=FONT_UI,
+    )
+    style.configure(
+        "Muted.Panel.TLabel",
+        background=PANEL_BG,
+        foreground=TEXT_MUTED,
+        font=FONT_UI_SMALL,
+    )
+    style.configure(
+        "Header.TLabel",
+        background=APP_BG,
+        foreground=TEXT_MAIN,
+        font=FONT_HEADER,
+    )
+    style.configure("Image.TLabel", background=IMAGE_BG)
+    style.configure(
+        "TButton",
+        background=CONTROL_BG,
+        foreground=CONTROL_FG,
+        bordercolor="#555555",
+        darkcolor=CONTROL_BG,
+        lightcolor=CONTROL_BG,
+        font=FONT_UI,
+        padding=(14, 8),
+    )
+    style.map(
+        "TButton",
+        background=[("active", CONTROL_ACTIVE_BG), ("pressed", "#303030")],
+        foreground=[("disabled", "#777777"), ("active", "#ffffff")],
+    )
+    style.configure(
+        "Danger.TButton",
+        background=DANGER_BG,
+        foreground=DANGER_FG,
+        bordercolor="#b94a4a",
+        darkcolor=DANGER_BG,
+        lightcolor=DANGER_BG,
+        font=FONT_UI,
+        padding=(14, 8),
+    )
+    style.map(
+        "Danger.TButton",
+        background=[("active", DANGER_ACTIVE_BG), ("pressed", "#6f2424")],
+        foreground=[("disabled", "#777777"), ("active", "#ffffff")],
+    )
+    style.configure(
+        "TCheckbutton",
+        background=PANEL_BG,
+        foreground=CONTROL_FG,
+        font=FONT_UI,
+        padding=(4, 4),
+    )
+    style.map(
+        "TCheckbutton",
+        background=[("active", PANEL_BG)],
+        foreground=[("disabled", "#777777"), ("active", "#ffffff")],
+    )
+    style.configure(
+        "Horizontal.TProgressbar",
+        background=ACCENT,
+        troughcolor=INPUT_BG,
+        bordercolor=INPUT_BG,
+        lightcolor=ACCENT,
+        darkcolor=ACCENT,
+    )
+    style.configure(
+        "Horizontal.TScale",
+        background=APP_BG,
+        troughcolor=INPUT_BG,
+    )
+    style.configure(
+        "Vertical.TScrollbar",
+        background=CONTROL_BG,
+        troughcolor=PANEL_BG,
+        arrowcolor=CONTROL_FG,
+        bordercolor="#555555",
+    )
+    style.configure(
+        "TPanedwindow",
+        background=APP_BG,
+        sashrelief="flat",
+    )
+
+
+def windows_taskbar_height() -> int:
+    if sys.platform != "win32":
+        return 0
+
+    class RECT(ctypes.Structure):
+        _fields_ = [
+            ("left", ctypes.c_long),
+            ("top", ctypes.c_long),
+            ("right", ctypes.c_long),
+            ("bottom", ctypes.c_long),
+        ]
+
+    rect = RECT()
+    try:
+        if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(rect), 0):
+            work_area_height = rect.bottom - rect.top
+            screen_height = ctypes.windll.user32.GetSystemMetrics(1)
+            return max(screen_height - work_area_height, 0)
+    except (AttributeError, OSError):
+        pass
+    return 40
 
 
 def find_large_images(
@@ -138,19 +249,23 @@ class ImagePreviewDialog:
 
         self.window = tk.Toplevel(parent)
         self.window.title(title)
+        self.window.configure(background=APP_BG)
         self.window.minsize(500, 400)
         self.window.transient(parent)
 
         parent.update_idletasks()
-        width = min(1000, max(parent.winfo_width() - 80, 500))
-        height = min(800, max(parent.winfo_height() - 80, 400))
+        width = min(round(parent.winfo_width() * 0.82), max(parent.winfo_width() - 80, 500))
+        height = min(
+            round(parent.winfo_height() * 0.82),
+            max(parent.winfo_height() - 80, 400),
+        )
         x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
         y = parent.winfo_rooty() + (parent.winfo_height() - height) // 2
         self.window.geometry(f"{width}x{height}+{x}+{y}")
 
         self.canvas = tk.Canvas(
             self.window,
-            background="#202020",
+            background=IMAGE_BG,
             highlightthickness=0,
         )
         self.canvas.pack(fill="both", expand=True)
@@ -232,12 +347,19 @@ class ImageSplitApp:
         self.pointer_position: tuple[int, int] | None = None
         self.only_unsliced = tk.BooleanVar(value=False)
         self.marked_sliced = tk.BooleanVar(value=False)
+        self.position_var = tk.DoubleVar(value=1.0)
+        self.updating_position = False
+        self.delete_pending = False
         self.render_job: str | None = None
         self.last_render_key: tuple[Path, int, int] | None = None
 
         self.root.title("Image Split")
-        self.root.geometry("1500x900")
-        self.root.minsize(1000, 650)
+        configure_dark_theme(self.root)
+        self.center_window(width_ratio=0.9, height_ratio=0.88, margin=64)
+        self.root.minsize(
+            min(1400, self.root.winfo_screenwidth()),
+            min(650, self.root.winfo_screenheight()),
+        )
 
         self._build_ui()
         self._bind_events()
@@ -248,6 +370,20 @@ class ImageSplitApp:
                 text=f"跳过 {len(self.decode_failures)} 个无法解码的文件"
             )
 
+    def center_window(
+        self,
+        width_ratio: float = 0.9,
+        height_ratio: float = 0.88,
+        margin: int = 0,
+    ) -> None:
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        width = min(round(screen_width * width_ratio), max(screen_width - margin, 1))
+        height = min(round(screen_height * height_ratio), max(screen_height - margin, 1))
+        x = max((screen_width - width) // 2, 0)
+        y = max(((screen_height - height) // 2) - windows_taskbar_height(), 0)
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
+
     @property
     def image_path(self) -> Path:
         return self.images[self.index]
@@ -256,7 +392,7 @@ class ImageSplitApp:
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=1)
 
-        top = ttk.Frame(self.root, padding=(10, 8))
+        top = ttk.Frame(self.root, padding=(14, 12), style="App.TFrame")
         top.grid(row=0, column=0, sticky="ew")
         top.columnconfigure(2, weight=1)
 
@@ -268,15 +404,24 @@ class ImageSplitApp:
         )
         self.previous_button.grid(row=0, column=0, padx=(0, 8))
 
-        self.progress_label = ttk.Label(top, width=12, anchor="center")
+        self.progress_label = ttk.Label(
+            top,
+            width=12,
+            anchor="center",
+            style="App.TLabel",
+        )
         self.progress_label.grid(row=0, column=1, padx=(0, 8))
 
-        self.progress = ttk.Progressbar(
+        self.position_scale = ttk.Scale(
             top,
-            mode="determinate",
-            maximum=max(len(self.images), 1),
+            from_=1,
+            to=max(len(self.images), 1),
+            variable=self.position_var,
+            command=self.preview_position,
+            cursor="hand2",
         )
-        self.progress.grid(row=0, column=2, sticky="ew")
+        self.position_scale.grid(row=0, column=2, sticky="ew")
+        self.position_scale.bind("<ButtonRelease-1>", self.release_position_slider)
 
         self.next_button = ttk.Button(
             top,
@@ -286,6 +431,15 @@ class ImageSplitApp:
         )
         self.next_button.grid(row=0, column=3, padx=(8, 0))
 
+        self.delete_button = ttk.Button(
+            top,
+            text="删除",
+            command=self.handle_delete_button,
+            takefocus=False,
+            style="Danger.TButton",
+        )
+        self.delete_button.grid(row=0, column=4, padx=(12, 0))
+
         self.filter_button = ttk.Checkbutton(
             top,
             text="仅查看未切图",
@@ -293,35 +447,39 @@ class ImageSplitApp:
             command=self.apply_filter,
             takefocus=False,
         )
-        self.filter_button.grid(row=0, column=4, padx=(12, 0))
+        self.filter_button.grid(row=0, column=5, padx=(12, 0))
 
         main = ttk.Panedwindow(self.root, orient="horizontal")
-        main.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        main.grid(row=1, column=0, sticky="nsew", padx=14, pady=(0, 14))
 
-        image_panel = ttk.Frame(main)
+        image_panel = ttk.Frame(main, style="App.TFrame")
         image_panel.columnconfigure(0, weight=1)
         image_panel.rowconfigure(1, weight=1)
         main.add(image_panel, weight=5)
 
-        self.file_label = ttk.Label(image_panel, anchor="center")
-        self.file_label.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        self.file_label = ttk.Label(
+            image_panel,
+            anchor="center",
+            style="Header.TLabel",
+        )
+        self.file_label.grid(row=0, column=0, sticky="ew", pady=(0, 10))
 
         self.canvas = tk.Canvas(
             image_panel,
-            background="#202020",
+            background=IMAGE_BG,
             highlightthickness=0,
             cursor="crosshair",
         )
         self.canvas.grid(row=1, column=0, sticky="nsew")
 
-        self.selection_actions = ttk.Frame(self.canvas, padding=4)
+        self.selection_actions = ttk.Frame(self.canvas, padding=6, style="Panel.TFrame")
         self.save_button = ttk.Button(
             self.selection_actions,
             text="保存 (Ctrl+S)",
             command=self.save_selection_from_button,
             takefocus=False,
         )
-        self.save_button.pack(side="left", padx=(0, 4))
+        self.save_button.pack(side="left", padx=(0, 8))
         self.preview_button = ttk.Button(
             self.selection_actions,
             text="预览 (Space)",
@@ -334,10 +492,11 @@ class ImageSplitApp:
             image_panel,
             text="拖动鼠标框选，Ctrl+S 保存切图",
             anchor="center",
+            style="App.TLabel",
         )
-        self.status_label.grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        self.status_label.grid(row=2, column=0, sticky="ew", pady=(10, 0))
 
-        thumbnail_panel = ttk.Frame(main, width=280)
+        thumbnail_panel = ttk.Frame(main, width=300, style="Panel.TFrame")
         thumbnail_panel.grid_propagate(False)
         thumbnail_panel.columnconfigure(0, weight=1)
         thumbnail_panel.rowconfigure(2, weight=1)
@@ -358,12 +517,13 @@ class ImageSplitApp:
             thumbnail_panel,
             text="暂无切图",
             anchor="center",
+            style="Panel.TLabel",
         )
         self.slice_count_label.grid(
             row=1, column=0, sticky="ew", pady=(0, 6)
         )
 
-        thumbnail_container = ttk.Frame(thumbnail_panel)
+        thumbnail_container = ttk.Frame(thumbnail_panel, style="Panel.TFrame")
         thumbnail_container.grid(row=2, column=0, sticky="nsew")
         thumbnail_container.columnconfigure(0, weight=1)
         thumbnail_container.rowconfigure(0, weight=1)
@@ -371,6 +531,7 @@ class ImageSplitApp:
         self.thumbnail_canvas = tk.Canvas(
             thumbnail_container,
             width=260,
+            background=PANEL_BG,
             highlightthickness=0,
         )
         self.thumbnail_canvas.grid(row=0, column=0, sticky="nsew")
@@ -382,7 +543,7 @@ class ImageSplitApp:
         thumbnail_scrollbar.grid(row=0, column=1, sticky="ns")
         self.thumbnail_canvas.configure(yscrollcommand=thumbnail_scrollbar.set)
 
-        self.thumbnail_frame = ttk.Frame(self.thumbnail_canvas)
+        self.thumbnail_frame = ttk.Frame(self.thumbnail_canvas, style="Panel.TFrame")
         self.thumbnail_window = self.thumbnail_canvas.create_window(
             (0, 0),
             window=self.thumbnail_frame,
@@ -406,6 +567,7 @@ class ImageSplitApp:
             self.previous_button,
             self.next_button,
             self.filter_button,
+            self.delete_button,
             self.save_button,
             self.preview_button,
             self.mark_sliced_checkbox,
@@ -429,6 +591,7 @@ class ImageSplitApp:
 
     def load_current(self) -> None:
         started_at = time.perf_counter()
+        self.reset_delete_button()
         with Image.open(self.image_path) as image:
             image.load()
             self.current_image = ImageOps.exif_transpose(image).copy()
@@ -448,11 +611,43 @@ class ImageSplitApp:
         self.marked_sliced.set(is_marked_sliced(self.image_path))
         self.update_file_label()
         self.progress_label.config(text=f"{self.index + 1} / {len(self.images)}")
-        self.progress["value"] = self.index + 1
+        self.updating_position = True
+        self.position_var.set(float(self.index + 1))
+        self.updating_position = False
         self.status_label.config(text="拖动鼠标框选，Ctrl+S 保存切图")
         self.schedule_render()
         self.load_thumbnails()
         self.return_focus_to_canvas()
+
+    def reset_delete_button(self) -> None:
+        self.delete_pending = False
+        if hasattr(self, "delete_button"):
+            self.delete_button.config(text="删除")
+
+    def preview_position(self, _value: str) -> None:
+        if self.updating_position:
+            return
+
+    def release_position_slider(self, _event: tk.Event) -> str:
+        if not self.images:
+            return "break"
+        target_index = self.position_to_index(self.position_var.get())
+        if target_index == self.index:
+            self.updating_position = True
+            self.position_var.set(float(self.index + 1))
+            self.updating_position = False
+            return "break"
+        self.index = target_index
+        self.load_current()
+        return "break"
+
+    def position_to_index(self, value: str | float) -> int:
+        try:
+            position = round(float(value))
+        except (TypeError, ValueError):
+            position = self.index + 1
+        position = min(max(position, 1), len(self.images))
+        return position - 1
 
     def update_file_label(self) -> None:
         if self.current_image is None:
@@ -694,7 +889,7 @@ class ImageSplitApp:
             label_y,
             text=f"{width} × {height} px",
             fill="white",
-            font=("Segoe UI", 10, "bold"),
+            font=FONT_OVERLAY,
             anchor="nw",
             tags="selection_overlay",
         )
@@ -717,7 +912,7 @@ class ImageSplitApp:
             text_box[1] - 3,
             text_box[2] + 5,
             text_box[3] + 3,
-            fill="#202020",
+            fill=IMAGE_BG,
             outline="#ffcc00",
             tags="selection_overlay",
         )
@@ -746,6 +941,7 @@ class ImageSplitApp:
 
     def handle_cancel_shortcut(self, _event: tk.Event) -> str:
         self.cancel_selection()
+        self.reset_delete_button()
         return "break"
 
     def cancel_selection(self) -> None:
@@ -755,6 +951,77 @@ class ImageSplitApp:
         self.pointer_position = None
         self.canvas.delete("selection_overlay")
         self.status_label.config(text="拖动鼠标框选，Ctrl+S 保存切图")
+
+    def handle_delete_button(self) -> None:
+        if not self.images:
+            return
+        if not self.delete_pending:
+            self.delete_pending = True
+            self.delete_button.config(text="确认删除")
+            self.status_label.config(text=f"再次点击确认删除：{self.image_path.name}")
+            self.return_focus_to_canvas()
+            return
+        self.delete_current_image()
+        self.return_focus_to_canvas()
+
+    def delete_current_image(self) -> None:
+        delete_path = self.image_path
+        caption_path = delete_path.with_suffix(".txt")
+        deleted: list[Path] = []
+        for path in (delete_path, caption_path):
+            if path.exists():
+                path.unlink()
+                deleted.append(path)
+
+        removed_mappings = self.remove_source_map_output(delete_path)
+        self.all_images = [path for path in self.all_images if path != delete_path]
+        self.images = [path for path in self.images if path != delete_path]
+        self.selection = None
+        self.drag_start = None
+        self.drag_end = None
+        self.pointer_position = None
+        self.current_image = None
+        self.photo = None
+        self.canvas.delete("all")
+        self.thumbnail_photos.clear()
+        for child in self.thumbnail_frame.winfo_children():
+            child.destroy()
+
+        LOGGER.info(
+            "删除当前图片：%s，caption=%s，source_map_mappings=%d",
+            delete_path,
+            caption_path if caption_path in deleted else "missing",
+            removed_mappings,
+        )
+
+        if not self.images:
+            self.position_scale.configure(to=1)
+            self.position_var.set(1.0)
+            self.progress_label.config(text="0 / 0")
+            self.file_label.config(text="没有剩余图片")
+            self.status_label.config(text=f"已删除 {delete_path.name}，没有剩余图片")
+            self.root.after(600, self.root.destroy)
+            return
+
+        self.index = min(self.index, len(self.images) - 1)
+        self.position_scale.configure(to=max(len(self.images), 1))
+        self.status_label.config(text=f"已删除 {delete_path.name}")
+        self.load_current()
+
+    def remove_source_map_output(self, output_path: Path) -> int:
+        source_map_path = output_path.parent / "sourmap.json"
+        if not source_map_path.is_file():
+            return 0
+
+        output_path = output_path.resolve()
+        removed = 0
+        with connect(source_map_path) as source_map:
+            for key, mapping in list(source_map.images.items()):
+                mapped_output = Path(mapping.get("output_path", "")).resolve()
+                if mapped_output == output_path:
+                    del source_map.images[key]
+                    removed += 1
+        return removed
 
     def preview_selection(self) -> None:
         if self.current_image is None or self.selection is None:
@@ -820,13 +1087,18 @@ class ImageSplitApp:
                 thumbnail.thumbnail((230, 170), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(thumbnail)
                 self.thumbnail_photos.append(photo)
-                card = ttk.Frame(self.thumbnail_frame, padding=(4, 4, 4, 8))
-                card.pack(fill="x")
+                card = ttk.Frame(
+                    self.thumbnail_frame,
+                    padding=(6, 6, 6, 10),
+                    style="Card.TFrame",
+                )
+                card.pack(fill="x", pady=(0, 8))
                 image_label = ttk.Label(
                     card,
                     image=photo,
                     anchor="center",
                     cursor="hand2",
+                    style="Image.TLabel",
                 )
                 image_label.pack(fill="x")
                 image_label.bind(
@@ -835,12 +1107,18 @@ class ImageSplitApp:
                         preview_path
                     ),
                 )
-                ttk.Label(card, text=path.name, anchor="center").pack(fill="x")
+                ttk.Label(
+                    card,
+                    text=path.name,
+                    anchor="center",
+                    style="Card.TLabel",
+                ).pack(fill="x", pady=(6, 0))
             except (UnidentifiedImageError, OSError, ValueError):
                 ttk.Label(
                     self.thumbnail_frame,
                     text=f"无法读取：{path.name}",
                     anchor="center",
+                    style="Muted.Panel.TLabel",
                 ).pack(fill="x", pady=4)
         thumbnail_seconds = time.perf_counter() - started_at
         LOGGER.log(
@@ -874,7 +1152,7 @@ class ImageSplitApp:
         else:
             self.images = list(self.all_images)
 
-        self.progress.configure(maximum=max(len(self.images), 1))
+        self.position_scale.configure(to=max(len(self.images), 1))
         if not self.images:
             self.index = 0
             self.current_image = None
@@ -882,7 +1160,7 @@ class ImageSplitApp:
             self.canvas.delete("all")
             self.file_label.config(text="没有符合筛选条件的图片")
             self.progress_label.config(text="0 / 0")
-            self.progress["value"] = 0
+            self.position_var.set(1.0)
             self.status_label.config(text="全部大图都已有切图")
             self.slice_count_label.config(text="")
             for child in self.thumbnail_frame.winfo_children():

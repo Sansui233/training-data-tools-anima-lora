@@ -31,7 +31,8 @@
 - 图片转换保留尺寸和构图，应用 EXIF orientation；默认输出 WebP quality 98。
 - 切图保存在 training data 中，命名为 `<原图名称>_slice_<number>.webp`。
 - `_sliced` 和 `_slice_<number>` 都是状态 suffix，不属于 original name；标记为已切图时同步重命名 image、caption 和 Source map output path。
-- `sourmap.json` 用于核对转换得到的原图；切图不写入 Source map。
+- Converter 和 JoyTag 会删除 `source_path` 已不存在的 Source map entry；切图不写入 Source map。
 - JoyTag 和打包脚本处理 training data 中的全部图片，包括切图。
 - JoyTag caption 以固定 trigger `atomsphere_style` 开头；除非使用 `--force`，否则跳过已有 caption。
-- 打包文件包含 image、caption 和 `anima-train/dataset_config.toml`，不包含 `sourmap.json` 与报告。
+- 打包只检查 training data 中每张 image 是否存在同名 `.txt`，不检查 Source map。
+- 打包文件包含 image、caption、dataset config、training script 和 AutoDL notes，不包含 `sourmap.json` 与报告。
