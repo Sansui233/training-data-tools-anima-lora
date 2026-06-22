@@ -1,10 +1,33 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from dataset_sources import collect_training_images
+from dataset_sources import collect_caption_files, collect_training_images, find_caption_for_image
+
+
+def archive_safe_stem(stem: str) -> str:
+    cleaned = "".join(
+        char if char.isascii() and (char.isalnum() or char in "-_") else "_"
+        for char in stem
+    ).strip("_")
+    if cleaned == stem and cleaned:
+        return stem
+    digest = hashlib.sha1(stem.encode("utf-8")).hexdigest()[:10]
+    return f"{cleaned or 'image'}_{digest}"
+
+
+def unique_archive_name(path: Path, used_names: set[str]) -> str:
+    base = archive_safe_stem(path.stem)
+    candidate = f"{base}{path.suffix.lower()}"
+    index = 2
+    while candidate.casefold() in used_names:
+        candidate = f"{base}_{index}{path.suffix.lower()}"
+        index += 1
+    used_names.add(candidate.casefold())
+    return candidate
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,15 +76,16 @@ def main() -> int:
 
     try:
         training_images = collect_training_images(data_dir)
+        caption_files = collect_caption_files(data_dir)
     except FileNotFoundError as exc:
         raise SystemExit(str(exc)) from exc
 
     problems: list[str] = []
     pairs: list[tuple[Path, Path]] = []
     for image_path in training_images:
-        caption_path = image_path.with_suffix(".txt")
-        if not caption_path.is_file():
-            problems.append(f"caption is missing: {caption_path}")
+        caption_path = find_caption_for_image(image_path, caption_files)
+        if caption_path is None:
+            problems.append(f"caption is missing for basename: {image_path.stem}")
             continue
         pairs.append((image_path, caption_path))
 
@@ -75,9 +99,12 @@ def main() -> int:
         archive.write(dataset_config, "anima-train/dataset_config.toml")
         archive.write(training_script, "anima-train/train_anima_lora_4090.sh")
         archive.write(training_notes, "anima-train/AUTODL_TRAINING.md")
+        used_names: set[str] = set()
         for image_path, caption_path in pairs:
-            archive.write(image_path, f"anima-train/data/{image_path.name}")
-            archive.write(caption_path, f"anima-train/data/{caption_path.name}")
+            archive_image_name = unique_archive_name(image_path, used_names)
+            archive_caption_name = f"{Path(archive_image_name).stem}.txt"
+            archive.write(image_path, f"anima-train/data/{archive_image_name}")
+            archive.write(caption_path, f"anima-train/data/{archive_caption_name}")
 
     print(f"packaged {len(pairs)} image/caption pairs -> {output_path}")
     return 0

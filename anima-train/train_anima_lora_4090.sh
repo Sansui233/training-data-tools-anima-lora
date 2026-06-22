@@ -39,4 +39,5 @@ accelerate launch --num_cpu_threads_per_process 1 anima_train_network.py \
   --qwen_image_vae_2d \
   --vae_chunk_size=64 \
   --vae_disable_cache \
-  --console_log_simple
+  --console_log_simple \
+  --resize_interpolation lanczos

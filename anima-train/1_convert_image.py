@@ -1,32 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from dataset_sources import collect_source_files
+from dataset_sources import collect_source_files, collect_training_images, find_caption_for_image
 from image_naming import original_stem
-from source_map import (
-    connect,
-    file_sha256,
-    get_mapping,
-    mapped_artifacts,
-    remove_missing_sources,
-    source_key,
-    upsert_mapping,
-)
-
-
-def safe_stem(path: Path) -> str:
-    cleaned = "".join(
-        char if char.isascii() and (char.isalnum() or char in "-_") else "_"
-        for char in path.stem
-    ).strip("_")
-    digest = hashlib.sha1(str(path).encode("utf-8")).hexdigest()[:10]
-    return f"{cleaned or 'image'}_{digest}"
 
 
 def convert_image(
@@ -104,7 +85,6 @@ def main() -> int:
     target_dir = args.target_dir.resolve()
     out_dir = (args.out_dir or target_dir / "data").resolve()
     report_dir = (args.report_dir or target_dir / "reports").resolve()
-    source_map_path = out_dir / "sourmap.json"
 
     out_dir.mkdir(parents=True, exist_ok=True)
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -112,111 +92,67 @@ def main() -> int:
     converted: list[dict[str, object]] = []
     skipped: list[dict[str, object]] = []
     failed: list[dict[str, object]] = []
-    removed_mappings: list[dict[str, object]] = []
     source_dirs = args.source_dirs
     try:
         inputs = collect_source_files(source_root, source_dirs)
     except (FileNotFoundError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
 
-    with connect(source_map_path) as source_map:
-        removed_mappings = remove_missing_sources(source_map)
-        for mapping in removed_mappings:
-            print(f"removed missing source mapping: {mapping['source_path']}")
-        for src in inputs:
-            key = source_key(source_root, src)
-            dst = out_dir / f"{safe_stem(src)}.{args.format}"
-            try:
-                digest = file_sha256(src)
-                existing = get_mapping(source_map, key)
-                if existing is not None:
-                    (
-                        mapped_image_path,
-                        caption_path,
-                        image_exists,
-                        caption_exists,
-                    ) = mapped_artifacts(existing)
-                else:
-                    mapped_image_path = dst
-                    caption_path = dst.with_suffix(".txt")
-                    image_exists = False
-                    caption_exists = False
-                if (
-                    not args.force
-                    and existing is not None
-                    and existing["source_hash"] == digest
-                    and mapped_image_path.parent == out_dir
-                    and mapped_image_path.suffix.lower() == dst.suffix.lower()
-                    and original_stem(mapped_image_path) == original_stem(dst)
-                    and existing["output_format"] == args.format
-                    and existing["output_quality"] == (
-                        args.webp_quality if args.format == "webp" else None
-                    )
-                    and bool(existing["output_lossless"]) == (
-                        args.webp_lossless if args.format == "webp" else False
-                    )
-                    and image_exists
-                ):
-                    skipped.append(
-                        {
-                            "source": str(src),
-                            "output": existing["output_path"],
-                            "caption": str(caption_path),
-                            "image_exists": image_exists,
-                            "caption_exists": caption_exists,
-                            "reason": (
-                                "mapped output and caption exist"
-                                if caption_exists
-                                else "mapped output exists; caption missing"
-                            ),
-                        }
-                    )
-                    status = "caption exists" if caption_exists else "caption missing"
-                    print(f"skipped {src.name}: mapped output exists; {status}")
-                    continue
+    training_images = collect_training_images(out_dir) if out_dir.is_dir() else []
+    for src in inputs:
+        dst = out_dir / f"{src.stem}.{args.format}"
+        try:
+            existing_image = next(
+                (
+                    path
+                    for path in training_images
+                    if original_stem(path) == original_stem(dst)
+                ),
+                None,
+            )
+            if existing_image is not None and not args.force:
+                caption_path = find_caption_for_image(existing_image)
+                skipped.append(
+                    {
+                        "source": str(src),
+                        "output": str(existing_image),
+                        "caption": str(caption_path) if caption_path else str(existing_image.with_suffix(".txt")),
+                        "image_exists": True,
+                        "caption_exists": caption_path is not None,
+                        "reason": "same basename output exists",
+                    }
+                )
+                status = "caption exists" if caption_path else "caption missing"
+                print(f"skipped {src.name}: same basename output exists; {status}")
+                continue
 
-                result = convert_image(
-                    src,
-                    dst,
-                    output_format=args.format,
-                    webp_quality=args.webp_quality,
-                    webp_lossless=args.webp_lossless,
-                )
-                upsert_mapping(
-                    source_map,
-                    key=key,
-                    source_path=src,
-                    source_hash=digest,
-                    output_path=dst,
-                    output_format=args.format,
-                    output_quality=args.webp_quality if args.format == "webp" else None,
-                    output_lossless=args.webp_lossless if args.format == "webp" else False,
-                    width=int(result["width"]),
-                    height=int(result["height"]),
-                    mode=str(result["mode"]),
-                )
-                converted.append(result)
-                print(f"converted {src.name} -> {dst.name}")
-            except (UnidentifiedImageError, OSError, ValueError) as exc:
-                failed.append({"source": str(src), "error": f"{type(exc).__name__}: {exc}"})
-                print(f"failed {src.name}: {type(exc).__name__}: {exc}")
+            result = convert_image(
+                src,
+                dst,
+                output_format=args.format,
+                webp_quality=args.webp_quality,
+                webp_lossless=args.webp_lossless,
+            )
+            converted.append(result)
+            training_images.append(dst)
+            print(f"converted {src.name} -> {dst.name}")
+        except (UnidentifiedImageError, OSError, ValueError) as exc:
+            failed.append({"source": str(src), "error": f"{type(exc).__name__}: {exc}"})
+            print(f"failed {src.name}: {type(exc).__name__}: {exc}")
 
     write_jsonl(report_dir / "converted_images.jsonl", converted)
     write_jsonl(report_dir / "skipped_conversions.jsonl", skipped)
     write_jsonl(report_dir / "failed_conversions.jsonl", failed)
-    write_jsonl(report_dir / "removed_source_mappings.jsonl", removed_mappings)
 
     summary = {
         "input_count": len(inputs),
         "converted_count": len(converted),
         "skipped_count": len(skipped),
         "failed_count": len(failed),
-        "removed_mapping_count": len(removed_mappings),
         "source_root": str(source_root),
         "source_dirs": [str(path.resolve()) for path in source_dirs],
         "target_dir": str(target_dir),
         "output_dir": str(out_dir),
-        "source_map": str(source_map_path),
         "output_format": args.format,
         "webp_quality": args.webp_quality if args.format == "webp" else None,
         "webp_lossless": args.webp_lossless if args.format == "webp" else None,

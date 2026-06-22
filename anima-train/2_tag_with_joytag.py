@@ -10,8 +10,8 @@ import torch.amp.autocast_mode
 import torchvision.transforms.functional as TVF
 from PIL import Image
 
-from dataset_sources import collect_training_images
-from source_map import connect, mapped_artifacts, remove_missing_sources
+from dataset_sources import collect_caption_files, collect_training_images, find_caption_for_image
+from image_naming import original_stem
 
 
 def import_joytag(repo_dir: Path):
@@ -89,11 +89,7 @@ def main() -> int:
     joytag_repo = args.joytag_repo.resolve()
     model_dir = args.model_dir.resolve()
     report_dir = (args.report_dir or target_dir / "reports").resolve()
-    source_map_path = data_dir / "sourmap.json"
     report_dir.mkdir(parents=True, exist_ok=True)
-
-    if not source_map_path.is_file():
-        raise SystemExit(f"source map does not exist: {source_map_path}")
 
     device = torch.device(args.device)
 
@@ -104,38 +100,32 @@ def main() -> int:
     except FileNotFoundError as exc:
         raise SystemExit(str(exc)) from exc
 
-    with connect(source_map_path) as source_map:
-        removed_mappings = remove_missing_sources(source_map)
-        for mapping in source_map.images.values():
-            image_path, caption_path, image_exists, caption_exists = mapped_artifacts(
-                mapping
-            )
-            if not image_exists:
-                skipped.append(
-                    {
-                        "source": mapping["source_path"],
-                        "image": str(image_path),
-                        "caption": str(caption_path),
-                        "image_exists": image_exists,
-                        "caption_exists": caption_exists,
-                        "reason": "mapped target image is missing; run conversion first",
-                    }
-                )
+    caption_files = collect_caption_files(data_dir)
+    caption_bases = {original_stem(path) for path in caption_files}
+    pending_bases: set[str] = set()
 
     for image_path in training_images:
-        caption_path = image_path.with_suffix(".txt")
-        if caption_path.is_file() and not args.force:
+        image_base = original_stem(image_path)
+        existing_caption = find_caption_for_image(image_path, caption_files)
+        if not args.force and (existing_caption is not None or image_base in pending_bases):
+            caption_path = existing_caption or image_path.with_suffix(".txt")
             skipped.append(
                 {
                     "image": str(image_path),
                     "caption": str(caption_path),
                     "image_exists": True,
-                    "caption_exists": True,
-                    "reason": "caption exists",
+                    "caption_exists": existing_caption is not None,
+                    "reason": (
+                        "same basename caption exists"
+                        if existing_caption is not None
+                        else "same basename image is already queued"
+                    ),
                 }
             )
             continue
+        caption_path = image_path.with_suffix(".txt")
         images.append((image_path, caption_path))
+        pending_bases.add(image_base)
 
     successes: list[dict[str, object]] = []
     failures: list[dict[str, object]] = []
@@ -162,6 +152,7 @@ def main() -> int:
             tags, scores = predict_tags(image_path, model, top_tags, device, args.threshold)
             caption = ", ".join([args.trigger, *tags])
             caption_path.write_text(caption + "\n", encoding="utf-8")
+            caption_bases.add(original_stem(caption_path))
             successes.append(
                 {
                     "image": str(image_path),
@@ -184,15 +175,13 @@ def main() -> int:
     write_jsonl(report_dir / "joytag_failures.jsonl", failures)
     summary = {
         "training_image_count": len(training_images),
-        "mapped_image_count": len(source_map.images),
-        "removed_mapping_count": len(removed_mappings),
+        "existing_caption_base_count": len(caption_bases),
         "image_count": len(images),
         "caption_count": len(successes),
         "skipped_count": len(skipped),
         "failed_count": len(failures),
         "target_dir": str(target_dir),
         "data_dir": str(data_dir),
-        "source_map": str(source_map_path),
         "trigger": args.trigger,
         "threshold": args.threshold,
         "device": str(device),

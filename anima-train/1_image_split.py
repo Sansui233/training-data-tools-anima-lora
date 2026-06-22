@@ -20,7 +20,6 @@ from image_naming import (
     original_stem,
     slice_number,
 )
-from source_map import connect, update_output_path
 from windows_ui import configure_tk_for_windows, enable_windows_dpi_awareness
 
 
@@ -973,7 +972,6 @@ class ImageSplitApp:
                 path.unlink()
                 deleted.append(path)
 
-        removed_mappings = self.remove_source_map_output(delete_path)
         self.all_images = [path for path in self.all_images if path != delete_path]
         self.images = [path for path in self.images if path != delete_path]
         self.selection = None
@@ -988,10 +986,9 @@ class ImageSplitApp:
             child.destroy()
 
         LOGGER.info(
-            "删除当前图片：%s，caption=%s，source_map_mappings=%d",
+            "删除当前图片：%s，caption=%s",
             delete_path,
             caption_path if caption_path in deleted else "missing",
-            removed_mappings,
         )
 
         if not self.images:
@@ -1007,21 +1004,6 @@ class ImageSplitApp:
         self.position_scale.configure(to=max(len(self.images), 1))
         self.status_label.config(text=f"已删除 {delete_path.name}")
         self.load_current()
-
-    def remove_source_map_output(self, output_path: Path) -> int:
-        source_map_path = output_path.parent / "sourmap.json"
-        if not source_map_path.is_file():
-            return 0
-
-        output_path = output_path.resolve()
-        removed = 0
-        with connect(source_map_path) as source_map:
-            for key, mapping in list(source_map.images.items()):
-                mapped_output = Path(mapping.get("output_path", "")).resolve()
-                if mapped_output == output_path:
-                    del source_map.images[key]
-                    removed += 1
-        return removed
 
     def preview_selection(self) -> None:
         if self.current_image is None or self.selection is None:
@@ -1204,11 +1186,6 @@ class ImageSplitApp:
             old_path.rename(new_path)
             if old_caption.exists():
                 old_caption.rename(new_caption)
-
-            source_map_path = old_path.parent / "sourmap.json"
-            if source_map_path.is_file():
-                with connect(source_map_path) as source_map:
-                    update_output_path(source_map, old_path, new_path)
         except Exception as exc:
             if new_caption.exists() and not old_caption.exists():
                 new_caption.rename(old_caption)

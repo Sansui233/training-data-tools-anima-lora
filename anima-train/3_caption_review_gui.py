@@ -10,7 +10,7 @@ from tkinter import messagebox, ttk
 
 from PIL import Image, ImageTk
 
-from dataset_sources import collect_training_images
+from dataset_sources import collect_caption_files, collect_training_images, find_caption_for_image
 from windows_ui import configure_tk_for_windows, enable_windows_dpi_awareness
 
 
@@ -332,7 +332,8 @@ class CaptionReviewApp:
 
     @property
     def caption_path(self) -> Path:
-        return self.image_path.with_suffix(".txt")
+        caption = find_caption_for_image(self.image_path, collect_caption_files(self.data_dir))
+        return caption or self.image_path.with_suffix(".txt")
 
     def on_text_modified(self, _event: tk.Event) -> None:
         if self.caption_text.edit_modified():
