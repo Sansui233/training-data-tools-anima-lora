@@ -51,6 +51,8 @@ Within each segment, sort by these priority groups:
 9. Copyright, series, character/source, artist, watermark, signature, logo, and text.
 10. Unknown or unclassified tags.
 
+Within the same priority group, sort by normalized tag text, then original index. This keeps exact duplicate tags adjacent if they exist before deduplication.
+
 See `references/tag-priority.md` for classifier details and maintenance notes.
 
 ## Safety

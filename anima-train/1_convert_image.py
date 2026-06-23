@@ -6,7 +6,12 @@ from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-from dataset_sources import collect_source_files, collect_training_images, find_caption_for_image
+from dataset_sources import (
+    collect_caption_files,
+    collect_source_files,
+    collect_training_images,
+    find_caption_for_image,
+)
 from image_naming import original_stem
 
 
@@ -54,6 +59,37 @@ def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
             handle.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def collect_existing_image_names(
+    train_root: Path,
+    out_dir: Path,
+) -> dict[str, Path]:
+    """Collect original image basenames from train/*/data once per run."""
+    data_dirs = {
+        path.resolve()
+        for path in train_root.glob("*/data")
+        if path.is_dir()
+    }
+    data_dirs.add(out_dir.resolve())
+
+    existing: dict[str, Path] = {}
+    for data_dir in sorted(data_dirs, key=lambda path: path.as_posix().casefold()):
+        if not data_dir.is_dir():
+            continue
+        for image_path in collect_training_images(data_dir):
+            existing.setdefault(original_stem(image_path), image_path)
+    return existing
+
+
+def collect_captions_by_dir(image_paths: list[Path]) -> dict[Path, list[Path]]:
+    captions_by_dir: dict[Path, list[Path]] = {}
+    for parent in sorted(
+        {path.parent.resolve() for path in image_paths},
+        key=lambda path: path.as_posix().casefold(),
+    ):
+        captions_by_dir[parent] = collect_caption_files(parent)
+    return captions_by_dir
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Incrementally compile readable source images into a training dataset."
@@ -98,20 +134,22 @@ def main() -> int:
     except (FileNotFoundError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
 
-    training_images = collect_training_images(out_dir) if out_dir.is_dir() else []
+    existing_images = collect_existing_image_names(Path("train").resolve(), out_dir)
+    captions_by_dir = collect_captions_by_dir(list(existing_images.values()))
+    captions_by_dir.setdefault(
+        out_dir.resolve(),
+        collect_caption_files(out_dir) if out_dir.is_dir() else [],
+    )
     for src in inputs:
         dst = out_dir / f"{src.stem}.{args.format}"
         try:
-            existing_image = next(
-                (
-                    path
-                    for path in training_images
-                    if original_stem(path) == original_stem(dst)
-                ),
-                None,
-            )
+            output_original_name = original_stem(dst)
+            existing_image = existing_images.get(output_original_name)
             if existing_image is not None and not args.force:
-                caption_path = find_caption_for_image(existing_image)
+                caption_path = find_caption_for_image(
+                    existing_image,
+                    captions_by_dir.get(existing_image.parent.resolve()),
+                )
                 skipped.append(
                     {
                         "source": str(src),
@@ -134,7 +172,7 @@ def main() -> int:
                 webp_lossless=args.webp_lossless,
             )
             converted.append(result)
-            training_images.append(dst)
+            existing_images[output_original_name] = dst
             print(f"converted {src.name} -> {dst.name}")
         except (UnidentifiedImageError, OSError, ValueError) as exc:
             failed.append({"source": str(src), "error": f"{type(exc).__name__}: {exc}"})

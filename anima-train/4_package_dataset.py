@@ -36,6 +36,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--target-dir", type=Path, default=Path("train/anima"))
     parser.add_argument(
+        "--source-dir",
+        type=Path,
+        action="append",
+        dest="source_dirs",
+        default=None,
+        help="Training dataset directory containing data/; repeat to package multiple sources.",
+    )
+    parser.add_argument(
         "--dataset-config",
         type=Path,
         default=Path("anima-train/dataset_config.toml"),
@@ -60,8 +68,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    target_dir = args.target_dir.resolve()
-    data_dir = (target_dir / "data").resolve()
+    source_dirs = args.source_dirs or [args.target_dir]
+    data_dirs = [(source_dir.resolve() / "data").resolve() for source_dir in source_dirs]
     dataset_config = args.dataset_config.resolve()
     training_script = args.training_script.resolve()
     training_notes = args.training_notes.resolve()
@@ -74,20 +82,23 @@ def main() -> int:
     if not training_notes.is_file():
         raise SystemExit(f"training notes do not exist: {training_notes}")
 
-    try:
-        training_images = collect_training_images(data_dir)
-        caption_files = collect_caption_files(data_dir)
-    except FileNotFoundError as exc:
-        raise SystemExit(str(exc)) from exc
-
     problems: list[str] = []
     pairs: list[tuple[Path, Path]] = []
-    for image_path in training_images:
-        caption_path = find_caption_for_image(image_path, caption_files)
-        if caption_path is None:
-            problems.append(f"caption is missing for basename: {image_path.stem}")
-            continue
-        pairs.append((image_path, caption_path))
+    source_counts: dict[str, int] = {}
+    for data_dir in data_dirs:
+        try:
+            training_images = collect_training_images(data_dir)
+            caption_files = collect_caption_files(data_dir)
+        except FileNotFoundError as exc:
+            raise SystemExit(str(exc)) from exc
+
+        source_counts[str(data_dir)] = len(training_images)
+        for image_path in training_images:
+            caption_path = find_caption_for_image(image_path, caption_files)
+            if caption_path is None:
+                problems.append(f"caption is missing for basename: {image_path.stem} in {data_dir}")
+                continue
+            pairs.append((image_path, caption_path))
 
     if problems:
         for problem in problems:
@@ -106,6 +117,8 @@ def main() -> int:
             archive.write(image_path, f"anima-train/data/{archive_image_name}")
             archive.write(caption_path, f"anima-train/data/{archive_caption_name}")
 
+    for data_dir, count in source_counts.items():
+        print(f"source {data_dir}: {count} image/caption pairs")
     print(f"packaged {len(pairs)} image/caption pairs -> {output_path}")
     return 0
 

@@ -336,23 +336,23 @@ def is_subject(tag: str) -> bool:
     return bool(SUBJECT_RE.match(tag))
 
 
-def priority(tag: str, index: int) -> tuple[int, int, str]:
+def priority(tag: str, index: int) -> tuple[int, str, int]:
     norm = tag.lower()
     tokens = set(norm.split("_"))
     if is_subject(norm):
-        return (10, index, norm)
+        return (10, norm, index)
     if norm in EXACT_GROUPS:
-        return (EXACT_GROUPS[norm], index, norm)
+        return (EXACT_GROUPS[norm], norm, index)
     for group, contains, prefixes, suffixes in GROUP_RULES:
         if (
             any(word in tokens for word in contains)
             or any(norm.startswith(prefix) for prefix in prefixes)
             or any(norm.endswith(suffix) for suffix in suffixes)
         ):
-            return (group, index, norm)
+            return (group, norm, index)
     if any(word in tokens for word in COLOR_WORDS):
-        return (80, index, norm)
-    return (100, index, norm)
+        return (80, norm, index)
+    return (100, norm, index)
 
 
 def split_segments(tags: list[str]) -> list[list[str]]:

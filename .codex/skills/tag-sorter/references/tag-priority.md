@@ -18,6 +18,8 @@ Priority order:
 10. Copyright/source tags include copyright, series, character/source names when recognizable, artist, watermark, signature, logo, and visible text.
 11. Unknown tags remain last but are preserved.
 
+Within the same priority group, sort by normalized tag text before original index so identical tags become adjacent.
+
 For multi-subject captions, a later subject-count tag starts a new segment. This handles captions such as:
 
 ```text
