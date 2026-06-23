@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tag Sorter"
+  short_description: "Sort dataset caption tags with backups"
+  default_prompt: "Use $tag-sorter to sort comma-separated dataset tags in this txt directory."
