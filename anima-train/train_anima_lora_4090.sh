@@ -21,23 +21,24 @@ accelerate launch --num_cpu_threads_per_process 1 anima_train_network.py \
   --network_dim=32 \
   --network_alpha=32 \
   --network_train_unet_only \
-  --gradient_accumulation_steps=4 \
+  --train_batch_size=2 \
+  --gradient_accumulation_steps=2 \
   --max_data_loader_n_workers=4 \
   --persistent_data_loader_workers \
-  --learning_rate=2e-5 \
+  --learning_rate=5e-5 \
   --optimizer_type="AdamW8bit" \
   --lr_scheduler="cosine" \
   --lr_warmup_steps=100 \
   --timestep_sampling="sigmoid" \
   --max_train_epochs=20 \
-  --save_every_n_epochs=2 \
+  --save_every_n_epochs=1 \
   --mixed_precision="bf16" \
   --save_precision="bf16" \
-  --gradient_checkpointing \
   --cache_latents \
   --cache_text_encoder_outputs \
   --qwen_image_vae_2d \
   --vae_chunk_size=64 \
   --vae_disable_cache \
   --console_log_simple \
-  --resize_interpolation lanczos
+  --resize_interpolation lanczos \
+  --gradient_checkpointing

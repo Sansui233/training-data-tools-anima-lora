@@ -63,6 +63,11 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("anima-train/AUTODL_TRAINING.md"),
     )
+    parser.add_argument(
+        "--skip-missing-caption",
+        action="store_true",
+        help="Skip images without matching captions instead of failing.",
+    )
     return parser.parse_args()
 
 
@@ -83,6 +88,7 @@ def main() -> int:
         raise SystemExit(f"training notes do not exist: {training_notes}")
 
     problems: list[str] = []
+    skipped_missing_caption: list[str] = []
     pairs: list[tuple[Path, Path]] = []
     source_counts: dict[str, int] = {}
     for data_dir in data_dirs:
@@ -96,7 +102,11 @@ def main() -> int:
         for image_path in training_images:
             caption_path = find_caption_for_image(image_path, caption_files)
             if caption_path is None:
-                problems.append(f"caption is missing for basename: {image_path.stem} in {data_dir}")
+                message = f"caption is missing for basename: {image_path.stem} in {data_dir}"
+                if args.skip_missing_caption:
+                    skipped_missing_caption.append(message)
+                else:
+                    problems.append(message)
                 continue
             pairs.append((image_path, caption_path))
 
@@ -118,7 +128,9 @@ def main() -> int:
             archive.write(caption_path, f"anima-train/data/{archive_caption_name}")
 
     for data_dir, count in source_counts.items():
-        print(f"source {data_dir}: {count} image/caption pairs")
+        print(f"source {data_dir}: {count} images")
+    for skipped in skipped_missing_caption:
+        print(f"skipped: {skipped}")
     print(f"packaged {len(pairs)} image/caption pairs -> {output_path}")
     return 0
 
