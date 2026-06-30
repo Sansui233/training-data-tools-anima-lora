@@ -11,4 +11,4 @@ batch_size = 2
 
   [[datasets.subsets]]
   image_dir = "/root/autodl-tmp/anima-train/data"
-  num_repeats = 10
+  num_repeats = 6

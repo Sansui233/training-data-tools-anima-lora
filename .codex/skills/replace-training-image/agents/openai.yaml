@@ -1,0 +1,4 @@
+interface:
+  display_name: "Replace Training Image"
+  short_description: "Convert and replace Anima dataset images safely."
+  default_prompt: "Replace a source image in the Anima raw data and optionally update the matching training data file."

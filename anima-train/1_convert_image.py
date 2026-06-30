@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import shutil
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -22,7 +24,30 @@ def convert_image(
     output_format: str,
     webp_quality: int,
     webp_lossless: bool,
+    jpg_quality: int,
+    jpg_max_side: int,
 ) -> dict[str, object]:
+    with Image.open(src) as image:
+        source_width, source_height = image.size
+
+    if (
+        output_format == "jpg"
+        and src.suffix.lower() in {".jpg", ".jpeg"}
+        and max(source_width, source_height) <= jpg_max_side
+    ):
+        shutil.copy2(src, dst)
+        with Image.open(dst) as image:
+            width, height = image.size
+            mode = image.mode
+        return {
+            "source": str(src),
+            "output": str(dst),
+            "width": width,
+            "height": height,
+            "mode": mode,
+            "copied_without_reencode": True,
+        }
+
     with Image.open(src) as image:
         image.load()
         normalized = ImageOps.exif_transpose(image)
@@ -41,6 +66,29 @@ def convert_image(
                 lossless=webp_lossless,
                 method=6,
             )
+        elif output_format == "jpg":
+            if output.mode in {"RGBA", "LA"} or (
+                output.mode == "P" and "transparency" in output.info
+            ):
+                rgba_output = output.convert("RGBA")
+                background = Image.new("RGB", rgba_output.size, (255, 255, 255))
+                background.paste(rgba_output, mask=rgba_output.getchannel("A"))
+                output = background
+            else:
+                output = output.convert("RGB")
+            if max(output.size) > jpg_max_side:
+                scale = jpg_max_side / max(output.size)
+                output = output.resize(
+                    (round(output.width * scale), round(output.height * scale)),
+                    Image.Resampling.LANCZOS,
+                )
+            output.save(
+                dst,
+                format="JPEG",
+                quality=jpg_quality,
+                subsampling=0,
+                optimize=True,
+            )
         else:
             output.save(dst, format="PNG")
 
@@ -50,6 +98,7 @@ def convert_image(
             "width": output.width,
             "height": output.height,
             "mode": output.mode,
+            "copied_without_reencode": False,
         }
 
 
@@ -105,9 +154,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--target-dir", type=Path, default=Path("train/anima"))
     parser.add_argument("--out-dir", type=Path, default=None)
     parser.add_argument("--report-dir", type=Path, default=None)
-    parser.add_argument("--format", choices=("webp", "png"), default="webp")
+    parser.add_argument("--format", choices=("webp", "png", "jpg"), default="webp")
     parser.add_argument("--webp-quality", type=int, default=98)
     parser.add_argument("--webp-lossless", action="store_true")
+    parser.add_argument("--jpg-quality", type=int, default=100)
+    parser.add_argument("--jpg-max-side", type=int, default=4096)
+    parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
 
@@ -116,6 +168,12 @@ def main() -> int:
     args = parse_args()
     if not 0 <= args.webp_quality <= 100:
         raise SystemExit("--webp-quality must be between 0 and 100")
+    if not 1 <= args.jpg_quality <= 100:
+        raise SystemExit("--jpg-quality must be between 1 and 100")
+    if args.jpg_max_side < 1:
+        raise SystemExit("--jpg-max-side must be at least 1")
+    if args.workers < 1:
+        raise SystemExit("--workers must be at least 1")
 
     source_root = Path("raws").resolve()
     target_dir = args.target_dir.resolve()
@@ -140,43 +198,57 @@ def main() -> int:
         out_dir.resolve(),
         collect_caption_files(out_dir) if out_dir.is_dir() else [],
     )
+    jobs: list[tuple[Path, Path]] = []
     for src in inputs:
         dst = out_dir / f"{src.stem}.{args.format}"
-        try:
-            output_original_name = original_stem(dst)
-            existing_image = existing_images.get(output_original_name)
-            if existing_image is not None and not args.force:
-                caption_path = find_caption_for_image(
-                    existing_image,
-                    captions_by_dir.get(existing_image.parent.resolve()),
-                )
-                skipped.append(
-                    {
-                        "source": str(src),
-                        "output": str(existing_image),
-                        "caption": str(caption_path) if caption_path else str(existing_image.with_suffix(".txt")),
-                        "image_exists": True,
-                        "caption_exists": caption_path is not None,
-                        "reason": "same basename output exists",
-                    }
-                )
-                status = "caption exists" if caption_path else "caption missing"
-                print(f"skipped {src.name}: same basename output exists; {status}")
-                continue
+        output_original_name = original_stem(dst)
+        existing_image = existing_images.get(output_original_name)
+        if existing_image is not None and not args.force:
+            caption_path = find_caption_for_image(
+                existing_image,
+                captions_by_dir.get(existing_image.parent.resolve()),
+            )
+            skipped.append(
+                {
+                    "source": str(src),
+                    "output": str(existing_image),
+                    "caption": str(caption_path) if caption_path else str(existing_image.with_suffix(".txt")),
+                    "image_exists": True,
+                    "caption_exists": caption_path is not None,
+                    "reason": "same basename output exists",
+                }
+            )
+            status = "caption exists" if caption_path else "caption missing"
+            print(f"skipped {src.name}: same basename output exists; {status}")
+            continue
 
-            result = convert_image(
+        jobs.append((src, dst))
+        existing_images[output_original_name] = dst
+
+    with ThreadPoolExecutor(max_workers=args.workers) as executor:
+        futures = {
+            executor.submit(
+                convert_image,
                 src,
                 dst,
                 output_format=args.format,
                 webp_quality=args.webp_quality,
                 webp_lossless=args.webp_lossless,
-            )
-            converted.append(result)
-            existing_images[output_original_name] = dst
-            print(f"converted {src.name} -> {dst.name}")
-        except (UnidentifiedImageError, OSError, ValueError) as exc:
-            failed.append({"source": str(src), "error": f"{type(exc).__name__}: {exc}"})
-            print(f"failed {src.name}: {type(exc).__name__}: {exc}")
+                jpg_quality=args.jpg_quality,
+                jpg_max_side=args.jpg_max_side,
+            ): (src, dst)
+            for src, dst in jobs
+        }
+        for future in as_completed(futures):
+            src, dst = futures[future]
+            try:
+                result = future.result()
+                converted.append(result)
+                action = "copied" if result.get("copied_without_reencode") else "converted"
+                print(f"{action} {src.name} -> {dst.name}")
+            except (UnidentifiedImageError, OSError, ValueError) as exc:
+                failed.append({"source": str(src), "error": f"{type(exc).__name__}: {exc}"})
+                print(f"failed {src.name}: {type(exc).__name__}: {exc}")
 
     write_jsonl(report_dir / "converted_images.jsonl", converted)
     write_jsonl(report_dir / "skipped_conversions.jsonl", skipped)
@@ -194,6 +266,9 @@ def main() -> int:
         "output_format": args.format,
         "webp_quality": args.webp_quality if args.format == "webp" else None,
         "webp_lossless": args.webp_lossless if args.format == "webp" else None,
+        "jpg_quality": args.jpg_quality if args.format == "jpg" else None,
+        "jpg_max_side": args.jpg_max_side if args.format == "jpg" else None,
+        "workers": args.workers,
         "failed_report": str(report_dir / "failed_conversions.jsonl"),
     }
     (report_dir / "conversion_summary.json").write_text(

@@ -19,8 +19,7 @@ raws/
 raws-inbox/
 
 # output dataset
-train/anima/data/
-train/anima/reports/
+train/
 
 # models
 */models/*

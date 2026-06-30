@@ -25,6 +25,7 @@ git clone --depth=1 https://github.com/fpgaminer/joytag
 
 - 默认输入：`--source` 指定的 `raws` 下一级或二级目录
 - 默认输出：图片与 `sourmap.json` 写入 `train/anima/data`，报告写入 `train/anima/reports`。sourmap 用于避免重复处理，主要是因为有的图像会改名。考虑以后改为打包时改名，避免额外依赖 index。
+- 默认使用 4 个 worker 并行转换；`--format jpg` 默认限制长边最大 4096，源文件本身是 `.jpg/.jpeg` 且长边不超过 4096 时会直接复制，不重新编码。
 
 ```powershell
 # 指定目录
@@ -36,6 +37,9 @@ uv run python anima-train/1_convert_image.py --source raws/default --source raws
 uv run python anima-train/1_convert_image.py --source raws/default --webp-quality 98
 uv run python anima-train/1_convert_image.py --source raws/default --webp-lossless
 uv run python anima-train/1_convert_image.py --source raws/default --format png
+uv run python anima-train/1_convert_image.py --source raws/default --format jpg --jpg-quality 100
+uv run python anima-train/1_convert_image.py --source raws/default --format jpg --jpg-max-side 4096
+uv run python anima-train/1_convert_image.py --source raws/default --format jpg --workers 4
 
 # 强制重新处理
 uv run python anima-train/1_convert_image.py --source raws/default --force
@@ -82,6 +86,42 @@ uv run python anima-train/2_tag_with_joytag.py --trigger atomsphere_style --thre
 
 # 强制重新打标
 uv run python anima-train/2_tag_with_joytag.py --force
+```
+
+### 使用 Doubao 生成风景标签
+
+`2_tag_with_doubao.py` 通过 Ark/Doubao 多模态 API 为缺少 caption 的图片生成同名 `.txt` 文件。默认 model 为 `doubao-seed-2-1-turbo-260628`，默认 trigger 为 `somescene style`，本地图片会按文件本身 MIME 编码为 data URL 后作为 `image_url.url` 发送。若 API 拒绝 WebP base64，可先用 `1_convert_image.py --format jpg --jpg-quality 100 --jpg-max-side 4096` 生成 JPG 训练图。
+
+- API key：可在脚本顶部填写 `DOUBAO_API_KEY = ""`，也可设置环境变量 `ARK_API_KEY`，或运行时传 `--api-key`
+- 默认输入：`train/anima/data` 中的全部图片
+- 默认输出：caption 写入 `train/anima/data`，报告写入 `train/anima/reports`
+- 默认使用 20 个 worker 并发请求；遇到 `429` 或临时 `5xx` 会自动重试
+- 去重规则：已有同 basename caption 的图片会跳过；同 original stem 的 `_sliced` 和 `_slice_<number>` 也会按同一图片处理
+
+```powershell
+# 使用默认目录，API key 写在脚本顶部或 ARK_API_KEY 环境变量中
+uv run python anima-train/2_tag_with_doubao.py
+
+# 只打标一张图片，caption 写到同目录同 basename 的 .txt
+uv run python anima-train/2_tag_with_doubao.py --image train/anima/data/example.jpg
+
+# 临时传入 API key
+uv run python anima-train/2_tag_with_doubao.py --api-key "你的 API key"
+
+# 指定训练集目录
+uv run python anima-train/2_tag_with_doubao.py --target-dir train/anima
+uv run python anima-train/2_tag_with_doubao.py --data-dir train/anima/data --report-dir train/anima/reports
+
+# 覆盖默认 model、trigger 或请求超时
+uv run python anima-train/2_tag_with_doubao.py --model doubao-seed-2-1-turbo-260628
+uv run python anima-train/2_tag_with_doubao.py --trigger "somescene style"
+uv run python anima-train/2_tag_with_doubao.py --timeout 180
+
+# 控制并发与重试
+uv run python anima-train/2_tag_with_doubao.py --workers 20 --retries 2 --retry-delay 5
+
+# 强制重新打标已有 caption 的图片
+uv run python anima-train/2_tag_with_doubao.py --force
 ```
 
 ## 4. 人工审核标签
