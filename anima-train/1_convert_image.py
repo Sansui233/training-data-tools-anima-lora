@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import os
 import shutil
 from pathlib import Path
 
@@ -15,6 +16,18 @@ from dataset_sources import (
     find_caption_for_image,
 )
 from image_naming import original_stem
+
+
+def default_worker_count() -> int:
+    cpu_count = os.cpu_count() or 4
+    return max(1, min(32, cpu_count))
+
+
+def resolve_worker_count(requested_workers: int, job_count: int) -> int:
+    if job_count < 1:
+        return 0
+    worker_count = default_worker_count() if requested_workers == 0 else requested_workers
+    return max(1, min(worker_count, job_count))
 
 
 def convert_image(
@@ -159,7 +172,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--webp-lossless", action="store_true")
     parser.add_argument("--jpg-quality", type=int, default=100)
     parser.add_argument("--jpg-max-side", type=int, default=4096)
-    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=8,
+        help="Number of parallel conversion workers; 0 chooses an automatic CPU-based default",
+    )
     parser.add_argument("--force", action="store_true")
     return parser.parse_args()
 
@@ -172,8 +190,8 @@ def main() -> int:
         raise SystemExit("--jpg-quality must be between 1 and 100")
     if args.jpg_max_side < 1:
         raise SystemExit("--jpg-max-side must be at least 1")
-    if args.workers < 1:
-        raise SystemExit("--workers must be at least 1")
+    if args.workers < 0:
+        raise SystemExit("--workers must be at least 0")
 
     source_root = Path("raws").resolve()
     target_dir = args.target_dir.resolve()
@@ -225,30 +243,35 @@ def main() -> int:
         jobs.append((src, dst))
         existing_images[output_original_name] = dst
 
-    with ThreadPoolExecutor(max_workers=args.workers) as executor:
-        futures = {
-            executor.submit(
-                convert_image,
-                src,
-                dst,
-                output_format=args.format,
-                webp_quality=args.webp_quality,
-                webp_lossless=args.webp_lossless,
-                jpg_quality=args.jpg_quality,
-                jpg_max_side=args.jpg_max_side,
-            ): (src, dst)
-            for src, dst in jobs
-        }
-        for future in as_completed(futures):
-            src, dst = futures[future]
-            try:
-                result = future.result()
-                converted.append(result)
-                action = "copied" if result.get("copied_without_reencode") else "converted"
-                print(f"{action} {src.name} -> {dst.name}")
-            except (UnidentifiedImageError, OSError, ValueError) as exc:
-                failed.append({"source": str(src), "error": f"{type(exc).__name__}: {exc}"})
-                print(f"failed {src.name}: {type(exc).__name__}: {exc}")
+    worker_count = resolve_worker_count(args.workers, len(jobs))
+    if jobs:
+        print(f"converting {len(jobs)} image(s) with {worker_count} worker(s)")
+
+    if worker_count:
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(
+                    convert_image,
+                    src,
+                    dst,
+                    output_format=args.format,
+                    webp_quality=args.webp_quality,
+                    webp_lossless=args.webp_lossless,
+                    jpg_quality=args.jpg_quality,
+                    jpg_max_side=args.jpg_max_side,
+                ): (src, dst)
+                for src, dst in jobs
+            }
+            for future in as_completed(futures):
+                src, dst = futures[future]
+                try:
+                    result = future.result()
+                    converted.append(result)
+                    action = "copied" if result.get("copied_without_reencode") else "converted"
+                    print(f"{action} {src.name} -> {dst.name}")
+                except (UnidentifiedImageError, OSError, ValueError) as exc:
+                    failed.append({"source": str(src), "error": f"{type(exc).__name__}: {exc}"})
+                    print(f"failed {src.name}: {type(exc).__name__}: {exc}")
 
     write_jsonl(report_dir / "converted_images.jsonl", converted)
     write_jsonl(report_dir / "skipped_conversions.jsonl", skipped)
@@ -268,7 +291,8 @@ def main() -> int:
         "webp_lossless": args.webp_lossless if args.format == "webp" else None,
         "jpg_quality": args.jpg_quality if args.format == "jpg" else None,
         "jpg_max_side": args.jpg_max_side if args.format == "jpg" else None,
-        "workers": args.workers,
+        "workers": worker_count,
+        "requested_workers": args.workers,
         "failed_report": str(report_dir / "failed_conversions.jsonl"),
     }
     (report_dir / "conversion_summary.json").write_text(

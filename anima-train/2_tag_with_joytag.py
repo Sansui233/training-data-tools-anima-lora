@@ -10,8 +10,7 @@ import torch.amp.autocast_mode
 import torchvision.transforms.functional as TVF
 from PIL import Image
 
-from dataset_sources import collect_caption_files, collect_training_images, find_caption_for_image
-from image_naming import original_stem
+from dataset_sources import collect_training_images
 
 
 def import_joytag(repo_dir: Path):
@@ -100,32 +99,33 @@ def main() -> int:
     except FileNotFoundError as exc:
         raise SystemExit(str(exc)) from exc
 
-    caption_files = collect_caption_files(data_dir)
-    caption_bases = {original_stem(path) for path in caption_files}
-    pending_bases: set[str] = set()
+    caption_paths = {
+        image_path.with_suffix(".txt")
+        for image_path in training_images
+        if image_path.with_suffix(".txt").is_file()
+    }
+    pending_captions: set[Path] = set()
 
     for image_path in training_images:
-        image_base = original_stem(image_path)
-        existing_caption = find_caption_for_image(image_path, caption_files)
-        if not args.force and (existing_caption is not None or image_base in pending_bases):
-            caption_path = existing_caption or image_path.with_suffix(".txt")
+        caption_path = image_path.with_suffix(".txt")
+        caption_exists = caption_path.is_file()
+        if not args.force and (caption_exists or caption_path in pending_captions):
             skipped.append(
                 {
                     "image": str(image_path),
                     "caption": str(caption_path),
                     "image_exists": True,
-                    "caption_exists": existing_caption is not None,
+                    "caption_exists": caption_exists,
                     "reason": (
-                        "same basename caption exists"
-                        if existing_caption is not None
-                        else "same basename image is already queued"
+                        "same-name caption exists"
+                        if caption_exists
+                        else "same-name image is already queued"
                     ),
                 }
             )
             continue
-        caption_path = image_path.with_suffix(".txt")
         images.append((image_path, caption_path))
-        pending_bases.add(image_base)
+        pending_captions.add(caption_path)
 
     successes: list[dict[str, object]] = []
     failures: list[dict[str, object]] = []
@@ -152,7 +152,7 @@ def main() -> int:
             tags, scores = predict_tags(image_path, model, top_tags, device, args.threshold)
             caption = ", ".join([args.trigger, *tags])
             caption_path.write_text(caption + "\n", encoding="utf-8")
-            caption_bases.add(original_stem(caption_path))
+            caption_paths.add(caption_path)
             successes.append(
                 {
                     "image": str(image_path),
@@ -175,7 +175,7 @@ def main() -> int:
     write_jsonl(report_dir / "joytag_failures.jsonl", failures)
     summary = {
         "training_image_count": len(training_images),
-        "existing_caption_base_count": len(caption_bases),
+        "existing_caption_count": len(caption_paths),
         "image_count": len(images),
         "caption_count": len(successes),
         "skipped_count": len(skipped),

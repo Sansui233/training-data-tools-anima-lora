@@ -10,7 +10,8 @@ from tkinter import messagebox, ttk
 
 from PIL import Image, ImageTk
 
-from dataset_sources import collect_caption_files, collect_training_images, find_caption_for_image
+from dataset_sources import collect_training_images
+from image_naming import is_slice_image, original_stem
 from windows_ui import configure_tk_for_windows, enable_windows_dpi_awareness
 
 
@@ -71,12 +72,14 @@ class CaptionReviewApp:
     def __init__(self, root: tk.Tk, data_dir: Path) -> None:
         self.root = root
         self.data_dir = data_dir
-        self.images = collect_training_images(data_dir)
+        self.all_images = collect_training_images(data_dir)
+        self.images: list[Path] = []
         self.index = 0
         self.current_image: Image.Image | None = None
         self.photo: ImageTk.PhotoImage | None = None
         self.dirty = False
         self.sort_var = tk.StringVar(value=DEFAULT_SORT)
+        self.only_sliced_groups = tk.BooleanVar(value=False)
         self.position_var = tk.DoubleVar(value=1.0)
         self.updating_position = False
         self.dragging_position = False
@@ -96,7 +99,7 @@ class CaptionReviewApp:
         self._build_ui()
         self._bind_keys()
 
-        if not self.images:
+        if not self.all_images:
             messagebox.showerror("No images", f"No training images found in {data_dir}")
             self.root.destroy()
             return
@@ -180,6 +183,17 @@ class CaptionReviewApp:
     def apply_sort(self, keep_current: bool = True) -> None:
         current_path = self.image_path if keep_current and self.images else None
         selected = self.sort_var.get()
+        if self.only_sliced_groups.get():
+            sliced_stems = {
+                original_stem(path)
+                for path in self.all_images
+                if is_slice_image(path)
+            }
+            self.images = [
+                path for path in self.all_images if original_stem(path) in sliced_stems
+            ]
+        else:
+            self.images = list(self.all_images)
 
         if selected == "编辑时间倒序":
             self.images.sort(
@@ -211,6 +225,20 @@ class CaptionReviewApp:
         self.apply_sort(keep_current=True)
         self.position_scale.configure(to=max(len(self.images), 1))
         self.update_status()
+
+    def on_filter_changed(self) -> None:
+        if not self.confirm_discard():
+            self.only_sliced_groups.set(not self.only_sliced_groups.get())
+            return
+        self.apply_sort(keep_current=True)
+        self.position_scale.configure(to=max(len(self.images), 1))
+        if self.images:
+            self.load_current()
+        else:
+            self.caption_text.delete("1.0", "end")
+            self.image_label.config(image="")
+            self.status_label.config(text="0/0")
+            self.image_header_label.config(text="No images")
 
     def center_window(
         self,
@@ -280,6 +308,12 @@ class CaptionReviewApp:
         )
         self.sort_combo.grid(row=0, column=1, sticky="ew")
         self.sort_combo.bind("<<ComboboxSelected>>", self.on_sort_changed)
+        ttk.Checkbutton(
+            sort_row,
+            text="Only sliced groups",
+            variable=self.only_sliced_groups,
+            command=self.on_filter_changed,
+        ).grid(row=0, column=2, sticky="e", padx=(12, 0))
 
         self.jump_tip_label = ttk.Label(right, style="Muted.Panel.TLabel")
         self.jump_tip_label.grid(row=3, column=0, sticky="ew", pady=(0, 10))
@@ -332,8 +366,7 @@ class CaptionReviewApp:
 
     @property
     def caption_path(self) -> Path:
-        caption = find_caption_for_image(self.image_path, collect_caption_files(self.data_dir))
-        return caption or self.image_path.with_suffix(".txt")
+        return self.image_path.with_suffix(".txt")
 
     def on_text_modified(self, _event: tk.Event) -> None:
         if self.caption_text.edit_modified():

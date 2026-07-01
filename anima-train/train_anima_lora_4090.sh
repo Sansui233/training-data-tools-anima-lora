@@ -15,7 +15,7 @@ accelerate launch --num_cpu_threads_per_process 1 anima_train_network.py \
   --vae="${QWEN_IMAGE_VAE}" \
   --dataset_config="${DATASET_CONFIG}" \
   --output_dir="${OUTPUT_DIR}" \
-  --output_name="atomsphere_style_anima_lora_r32" \
+  --output_name="anon-scene_anima_lora_r32" \
   --save_model_as=safetensors \
   --network_module=networks.lora_anima \
   --network_dim=32 \
@@ -25,7 +25,7 @@ accelerate launch --num_cpu_threads_per_process 1 anima_train_network.py \
   --gradient_accumulation_steps=2 \
   --max_data_loader_n_workers=4 \
   --persistent_data_loader_workers \
-  --learning_rate=5e-5 \
+  --learning_rate=3e-5 \
   --optimizer_type="AdamW8bit" \
   --lr_scheduler="cosine" \
   --lr_warmup_steps=100 \
@@ -41,4 +41,5 @@ accelerate launch --num_cpu_threads_per_process 1 anima_train_network.py \
   --vae_disable_cache \
   --console_log_simple \
   --resize_interpolation lanczos \
-  --gradient_checkpointing
+  --gradient_checkpointing \
+  --network_weights="/root/autodl-tmp/anima-train-scene-bak/output/anon-scene_anima_lora_r32-000004.safetensors"

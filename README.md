@@ -25,7 +25,7 @@ git clone --depth=1 https://github.com/fpgaminer/joytag
 
 - 默认输入：`--source` 指定的 `raws` 下一级或二级目录
 - 默认输出：图片与 `sourmap.json` 写入 `train/anima/data`，报告写入 `train/anima/reports`。sourmap 用于避免重复处理，主要是因为有的图像会改名。考虑以后改为打包时改名，避免额外依赖 index。
-- 默认使用 4 个 worker 并行转换；`--format jpg` 默认限制长边最大 4096，源文件本身是 `.jpg/.jpeg` 且长边不超过 4096 时会直接复制，不重新编码。
+- 默认使用 8 个 worker 并行转换；传 `--workers 0` 可按 CPU 自动选择 worker 数，也可以手动指定并发数。`--format jpg` 默认限制长边最大 4096，源文件本身是 `.jpg/.jpeg` 且长边不超过 4096 时会直接复制，不重新编码。
 
 ```powershell
 # 指定目录
@@ -39,7 +39,7 @@ uv run python anima-train/1_convert_image.py --source raws/default --webp-lossle
 uv run python anima-train/1_convert_image.py --source raws/default --format png
 uv run python anima-train/1_convert_image.py --source raws/default --format jpg --jpg-quality 100
 uv run python anima-train/1_convert_image.py --source raws/default --format jpg --jpg-max-side 4096
-uv run python anima-train/1_convert_image.py --source raws/default --format jpg --workers 4
+uv run python anima-train/1_convert_image.py --source raws/default --format jpg --workers 16
 
 # 强制重新处理
 uv run python anima-train/1_convert_image.py --source raws/default --force

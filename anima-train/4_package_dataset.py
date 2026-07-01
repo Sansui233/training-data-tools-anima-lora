@@ -51,7 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("anima-train/atomsphere_anima_train_package.zip"),
+        default=Path("anima-train/anima_train_package.zip"),
     )
     parser.add_argument(
         "--training-script",
